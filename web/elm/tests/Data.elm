@@ -1,5 +1,8 @@
 module Data exposing
     ( check
+    , job
+    , jobName
+    , pipeline
     , pipelineName
     , resource
     , resourceName
@@ -58,6 +61,41 @@ resource pinnedVersion =
     , pinComment = Nothing
     , icon = Nothing
     }
+
+
+pipeline : String -> Int -> Concourse.Pipeline
+pipeline team id =
+    { id = id
+    , name = "pipeline-" ++ String.fromInt id
+    , paused = False
+    , public = True
+    , teamName = team
+    , groups = []
+    }
+
+
+job : Int -> Concourse.Job
+job pipelineID =
+    { pipeline =
+        { teamName = teamName
+        , pipelineName = "pipeline-" ++ String.fromInt pipelineID
+        }
+    , name = jobName
+    , pipelineName = "pipeline-" ++ String.fromInt pipelineID
+    , teamName = teamName
+    , nextBuild = Nothing
+    , finishedBuild = Nothing
+    , transitionBuild = Nothing
+    , paused = False
+    , disableManualTrigger = False
+    , inputs = []
+    , outputs = []
+    , groups = []
+    }
+
+
+jobName =
+    "job"
 
 
 teamName =

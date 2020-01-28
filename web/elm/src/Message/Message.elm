@@ -80,6 +80,8 @@ type DomID
     | SideBarTeam String
     | SideBarPipeline Concourse.PipelineIdentifier
     | PipelineCard Int
+    | Dashboard
+    | DashboardGroup String
 
 
 type VersionToggleAction
