@@ -45,18 +45,13 @@
   }
 
   .dashboard-team-pipelines {
-    display: flex;
-    flex-wrap: wrap;
-    padding-left: (50px * @scale);
-
     .pipeline-wrapper {
       display: flex;
+      transition: transform 0.2s ease-in-out;
     }
 
     .drop-area {
-      position: relative;
-      left: (-125px * @scale);
-      margin-right: (-200px * @scale);
+      background-color: rgba(255, 0, 0, 0.2);
       z-index: -1;
 
       &.active {
@@ -64,8 +59,12 @@
       }
 
       &.animation {
-        transition: all 0.2s ease-in-out;
+        transition: transform 0.2s ease-in-out;
       }
+
+	  &:nth-of-type(even) {
+        background-color: rgba(0, 255, 0, 0.2);
+	  }
     }
   }
 

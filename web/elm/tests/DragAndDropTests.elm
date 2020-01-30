@@ -33,12 +33,6 @@ all =
                 >> given iAmDraggingTheFirstPipelineCard
                 >> when iAmLookingAtTheFirstPipelineCard
                 >> then_ itIsInvisible
-        , test "initial drop area grows when dragging starts" <|
-            given iVisitedTheDashboard
-                >> given myBrowserFetchedOnePipeline
-                >> given iAmDraggingTheFirstPipelineCard
-                >> when iAmLookingAtTheInitialDropArea
-                >> then_ itIsWide
         , test "final drop area has dragenter listener" <|
             given iVisitedTheDashboard
                 >> given myBrowserFetchedOnePipeline
@@ -49,26 +43,12 @@ all =
                 >> given myBrowserFetchedOnePipeline
                 >> when iAmLookingAtTheFinalDropArea
                 >> then_ itListensForDragOverPreventingDefault
-        , test "initial drop area shrinks when dragging over final drop area" <|
-            given iVisitedTheDashboard
-                >> given myBrowserFetchedOnePipeline
-                >> given iAmDraggingTheFirstPipelineCard
-                >> given iAmDraggingOverTheSecondDropArea
-                >> when iAmLookingAtTheInitialDropArea
-                >> then_ itIsNarrow
         , test "pipeline card has dragend listener" <|
             given iVisitedTheDashboard
                 >> given myBrowserFetchedOnePipeline
                 >> given iAmDraggingTheFirstPipelineCard
                 >> when iAmLookingAtTheFirstPipelineCard
                 >> then_ itListensForDragEnd
-        , test "initial drop area shrinks when pipeline card is dropped" <|
-            given iVisitedTheDashboard
-                >> given myBrowserFetchedOnePipeline
-                >> given iAmDraggingTheFirstPipelineCard
-                >> given iDropThePipelineCard
-                >> when iAmLookingAtTheInitialDropArea
-                >> then_ itIsNarrow
         , test "pipeline card becomes visible when it is dropped" <|
             given iVisitedTheDashboard
                 >> given myBrowserFetchedOnePipeline
@@ -309,14 +289,6 @@ itIsVisible =
         , style "margin" "0 12.5px"
         , style "overflow" "hidden"
         ]
-
-
-itIsWide =
-    Query.has [ style "padding" "0 198.5px" ]
-
-
-itIsNarrow =
-    Query.has [ style "padding" "0 50px" ]
 
 
 theyAreClickable =

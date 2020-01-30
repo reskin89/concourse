@@ -9,17 +9,19 @@ module Dashboard.Group exposing
 
 import Concourse
 import Dashboard.DashboardPreview as DashboardPreview
+import Dashboard.Drag exposing (drag)
 import Dashboard.Group.Models exposing (Group, Pipeline)
 import Dashboard.Group.Tag as Tag
 import Dashboard.Models exposing (DragState(..), DropState(..))
 import Dashboard.Pipeline as Pipeline
-import Dashboard.PipelineGridLayout as PipelineGridLayout
+import Dashboard.PipelineGridLayout as PipelineGridLayout exposing (cardHeight, cardWidth, padding)
 import Dashboard.Styles as Styles
 import Dict exposing (Dict)
 import HoverState
 import Html exposing (Html)
 import Html.Attributes exposing (attribute, class, classList, draggable, id, style)
 import Html.Events exposing (on, preventDefaultOn, stopPropagationOn)
+import Html.Keyed
 import Json.Decode
 import Maybe.Extra
 import Message.Effects as Effects
@@ -38,6 +40,10 @@ ordering session =
 
 type alias PipelineIndex =
     Int
+
+
+type alias Bounds =
+    { x : Float, y : Float, width : Float, height : Float }
 
 
 view :
@@ -60,20 +66,26 @@ view :
     -> ( Html Message, Float )
 view session params g =
     let
-        pipelinesForGroup =
-            g.pipelines
+        ( dragTeam, fromIndex, toIndex ) =
+            case ( params.dragState, params.dropState ) of
+                ( Dragging team fromIdx, NotDropping ) ->
+                    ( team, fromIdx, fromIdx + 1 )
 
-        padding =
-            PipelineGridLayout.padding
+                ( Dragging team fromIdx, Dropping toIdx ) ->
+                    ( team, fromIdx, toIdx )
+
+                _ ->
+                    ( "", -1, -1 )
+
+        pipelinesForGroup =
+            if (g.teamName == dragTeam) && (fromIndex >= 0) then
+                drag fromIndex toIndex g.pipelines
+
+            else
+                g.pipelines
 
         headerHeight =
             60
-
-        cardWidth =
-            PipelineGridLayout.cardWidth
-
-        cardHeight =
-            PipelineGridLayout.cardHeight
 
         numColumns =
             max 1 (floor (params.viewportWidth / (cardWidth + padding)))
@@ -86,7 +98,7 @@ view session params g =
 
         isVisible { row, height } =
             (numRowsOffset < row + height)
-                && (row <= numRowsOffset + numRowsVisible)
+                && (row <= numRowsOffset + numRowsVisible + 1)
 
         layersList =
             pipelinesForGroup
@@ -125,113 +137,175 @@ view session params g =
                 + padding
                 * (numRows - 1)
 
+        dropAreaBounds =
+            List.range 1 numRows
+                |> List.filter (\row -> isVisible { row = row, height = 1 })
+                |> List.map toFloat
+                |> List.map
+                    (\row ->
+                        List.range 1 (numColumns + 1)
+                            |> List.map toFloat
+                            |> List.map
+                                (\col ->
+                                    { x = (col - 1) * (cardWidth + padding)
+                                    , y = (row - 1) * (cardHeight + padding)
+                                    , width = 50
+                                    , height = cardHeight
+                                    }
+                                )
+                    )
+                |> List.concat
+
+        orderings =
+            pipelinesForGroup
+                |> List.indexedMap (\i _ -> i)
+
+        dropAreaIndexes =
+            let
+                visibleCards =
+                    cards
+                        |> List.map2 Tuple.pair orderings
+                        |> List.filter (Tuple.second >> isVisible)
+            in
+            List.range 1 numRows
+                |> List.map
+                    (\row ->
+                        visibleCards
+                            |> List.filter (Tuple.second >> .row >> (==) row)
+                    )
+                |> List.filter (List.isEmpty >> not)
+                |> List.map
+                    (\rowCards ->
+                        let
+                            rowHeight =
+                                rowCards
+                                    |> List.map (Tuple.second >> .height)
+                                    |> List.maximum
+                                    |> Maybe.withDefault 1
+
+                            maxIndex =
+                                rowCards
+                                    |> List.map Tuple.first
+                                    |> List.maximum
+                                    |> Maybe.withDefault 0
+                        in
+                        rowCards
+                            |> List.map (\( i, { width } ) -> List.repeat width i)
+                            |> List.concat
+                            |> (\i -> i ++ [ maxIndex + 1 ])
+                            |> List.repeat rowHeight
+                            |> List.concat
+                    )
+                |> List.concat
+
+        dropAreas =
+            dropAreaBounds
+                |> List.map2 Tuple.pair dropAreaIndexes
+                |> List.map
+                    (\( i, bounds ) ->
+                        pipelineDropAreaView params.dragState
+                            params.dropState
+                            g.teamName
+                            bounds
+                            i
+                    )
+
         pipelineCards =
             if List.isEmpty pipelinesForGroup then
-                [ Pipeline.pipelineNotSetView ]
+                [ ( "not-set", Pipeline.pipelineNotSetView ) ]
 
             else
-                List.append
-                    (pipelinesForGroup
-                        |> List.map3
-                            (\card layers pipeline ->
-                                ( card, layers, pipeline )
-                            )
-                            cards
-                            layersList
-                        |> List.filter (\( card, _, _ ) -> isVisible card)
-                        |> List.map
-                            (\( card, layers, pipeline ) ->
-                                Html.div
-                                    [ class "pipeline-wrapper"
-                                    , style "position" "absolute"
-                                    , style "transform"
-                                        ("translate("
-                                            ++ String.fromInt ((card.column - 1) * (cardWidth + padding) + padding)
-                                            ++ "px,"
-                                            ++ String.fromInt ((card.row - 1) * (cardHeight + padding))
-                                            ++ "px)"
-                                        )
-                                    , style
-                                        "width"
-                                        (String.fromInt
-                                            (cardWidth
-                                                * card.width
-                                                + padding
-                                                * (card.width - 1)
-                                            )
-                                            ++ "px"
-                                        )
-                                    , style "height"
-                                        (String.fromInt
-                                            (cardHeight
-                                                * card.height
-                                                + padding
-                                                * (card.height - 1)
-                                            )
-                                            ++ "px"
-                                        )
-                                    ]
-                                    [ pipelineDropAreaView params.dragState params.dropState g.teamName pipeline.ordering
-                                    , Html.div
-                                        ([ class "card"
-                                         , style "width" "100%"
-                                         , id <| Effects.toHtmlID <| PipelineCard pipeline.id
-                                         , attribute "data-pipeline-name" pipeline.name
-                                         , attribute
-                                            "ondragstart"
-                                            "event.dataTransfer.setData('text/plain', '');"
-                                         , draggable "true"
-                                         , on "dragstart"
-                                            (Json.Decode.succeed (DragStart pipeline.teamName pipeline.ordering))
-                                         , on "dragend" (Json.Decode.succeed DragEnd)
-                                         ]
-                                            ++ (if params.dragState == Dragging pipeline.teamName pipeline.ordering then
-                                                    [ style "width" "0"
-                                                    , style "margin" "0 12.5px"
-                                                    , style "overflow" "hidden"
-                                                    ]
-
-                                                else
-                                                    []
-                                               )
-                                            ++ (if params.dropState == DroppingWhileApiRequestInFlight g.teamName then
-                                                    [ style "opacity" "0.45", style "pointer-events" "none" ]
-
-                                                else
-                                                    [ style "opacity" "1" ]
-                                               )
-                                        )
-                                        [ Pipeline.pipelineView
-                                            { now = params.now
-                                            , pipeline = pipeline
-                                            , resourceError =
-                                                params.pipelinesWithResourceErrors
-                                                    |> Dict.get ( pipeline.teamName, pipeline.name )
-                                                    |> Maybe.withDefault False
-                                            , existingJobs =
-                                                params.existingJobs
-                                                    |> List.filter
-                                                        (\j ->
-                                                            j.teamName == pipeline.teamName && j.pipelineName == pipeline.name
-                                                        )
-                                            , layers = layers
-                                            , hovered = params.hovered
-                                            , pipelineRunningKeyframes = params.pipelineRunningKeyframes
-                                            , userState = session.userState
-                                            }
-                                        ]
-                                    ]
-                            )
-                    )
-                    [ pipelineDropAreaView params.dragState
-                        params.dropState
-                        g.teamName
-                        (pipelinesForGroup
-                            |> List.map (.ordering >> (+) 1)
-                            |> List.maximum
-                            |> Maybe.withDefault 0
+                pipelinesForGroup
+                    |> List.map3
+                        (\card layers pipeline ->
+                            ( card, layers, pipeline )
                         )
-                    ]
+                        cards
+                        layersList
+                    |> List.filter (\( card, _, _ ) -> isVisible card)
+                    |> List.map
+                        (\( card, layers, pipeline ) ->
+                            Html.div
+                                [ class "pipeline-wrapper"
+                                , style "position" "absolute"
+                                , style "transform"
+                                    ("translate("
+                                        ++ String.fromInt ((card.column - 1) * (cardWidth + padding) + padding)
+                                        ++ "px,"
+                                        ++ String.fromInt ((card.row - 1) * (cardHeight + padding))
+                                        ++ "px)"
+                                    )
+                                , style
+                                    "width"
+                                    (String.fromInt
+                                        (cardWidth
+                                            * card.width
+                                            + padding
+                                            * (card.width - 1)
+                                        )
+                                        ++ "px"
+                                    )
+                                , style "height"
+                                    (String.fromInt
+                                        (cardHeight
+                                            * card.height
+                                            + padding
+                                            * (card.height - 1)
+                                        )
+                                        ++ "px"
+                                    )
+                                ]
+                                [ Html.div
+                                    ([ class "card"
+                                     , style "width" "100%"
+                                     , id <| Effects.toHtmlID <| PipelineCard pipeline.id
+                                     , attribute "data-pipeline-name" pipeline.name
+                                     , attribute
+                                        "ondragstart"
+                                        "event.dataTransfer.setData('text/plain', '');"
+                                     , draggable "true"
+                                     , on "dragstart"
+                                        (Json.Decode.succeed (DragStart pipeline.teamName pipeline.ordering))
+                                     , on "dragend" (Json.Decode.succeed DragEnd)
+                                     ]
+                                        ++ (if params.dragState == Dragging pipeline.teamName pipeline.ordering then
+                                                [ style "width" "0"
+                                                , style "margin" "0 12.5px"
+                                                , style "overflow" "hidden"
+                                                ]
+
+                                            else
+                                                []
+                                           )
+                                        ++ (if params.dropState == DroppingWhileApiRequestInFlight g.teamName then
+                                                [ style "opacity" "0.45", style "pointer-events" "none" ]
+
+                                            else
+                                                [ style "opacity" "1" ]
+                                           )
+                                    )
+                                    [ Pipeline.pipelineView
+                                        { now = params.now
+                                        , pipeline = pipeline
+                                        , resourceError =
+                                            params.pipelinesWithResourceErrors
+                                                |> Dict.get ( pipeline.teamName, pipeline.name )
+                                                |> Maybe.withDefault False
+                                        , existingJobs =
+                                            params.existingJobs
+                                                |> List.filter
+                                                    (\j ->
+                                                        j.teamName == pipeline.teamName && j.pipelineName == pipeline.name
+                                                    )
+                                        , layers = layers
+                                        , hovered = params.hovered
+                                        , pipelineRunningKeyframes = params.pipelineRunningKeyframes
+                                        , userState = session.userState
+                                        }
+                                    ]
+                                ]
+                                |> Tuple.pair (String.fromInt pipeline.id)
+                        )
     in
     Html.div
         [ id <| Effects.toHtmlID <| DashboardGroup g.teamName
@@ -256,12 +330,32 @@ view session params g =
                         []
                    )
             )
-        , Html.div
+        , Html.Keyed.node "div"
             [ class <| .sectionBodyClass Effects.stickyHeaderConfig
             , style "position" "relative"
             , style "height" <| String.fromInt totalCardsHeight ++ "px"
             ]
-            pipelineCards
+            (pipelineCards ++ [ ( "drop-areas", Html.div [] dropAreas ) ])
+        , Html.div
+            [ style "position" "absolute"
+            , style "top" "0"
+            , style "left" "0"
+            , style "color" "white"
+            , style "width" "100px"
+            , style "height" "100px"
+            , style "z-index"
+                (if g.teamName == "main" then
+                    "100000"
+
+                 else
+                    "-100000"
+                )
+            ]
+            [ Html.div [] [ Html.text <| "from " ++ String.fromInt fromIndex ]
+            , Html.div [] [ Html.text <| "to " ++ String.fromInt toIndex ]
+            , Html.div [] [ Html.text <| "indexes " ++ String.fromInt (List.length dropAreaIndexes) ]
+            , Html.div [] [ Html.text <| "bounds " ++ String.fromInt (List.length dropAreaBounds) ]
+            ]
         ]
         |> (\html ->
                 ( html
@@ -345,19 +439,16 @@ pipelineNotSetView =
         ]
 
 
-pipelineDropAreaView : DragState -> DropState -> String -> Int -> Html Message
-pipelineDropAreaView dragState dropState name index =
+pipelineDropAreaView : DragState -> DropState -> String -> Bounds -> Int -> Html Message
+pipelineDropAreaView dragState dropState name { x, y, width, height } index =
     let
-        ( active, over ) =
-            case ( dragState, dropState ) of
-                ( Dragging team dragIdx, NotDropping ) ->
-                    ( team == name, index == dragIdx )
-
-                ( Dragging team _, Dropping dropIdx ) ->
-                    ( team == name, index == dropIdx )
+        active =
+            case dragState of
+                Dragging team _ ->
+                    team == name
 
                 _ ->
-                    ( False, False )
+                    False
     in
     Html.div
         [ classList
@@ -365,19 +456,21 @@ pipelineDropAreaView dragState dropState name index =
             , ( "active", active )
             , ( "animation", dropState /= NotDropping )
             ]
+        , style "position" "absolute"
+        , style "transform" <|
+            "translate("
+                ++ String.fromFloat x
+                ++ "px,"
+                ++ String.fromFloat y
+                ++ "px)"
+        , style "width" <| String.fromFloat width ++ "px"
+        , style "height" <| String.fromFloat height ++ "px"
         , on "dragenter" (Json.Decode.succeed (DragOver name index))
 
         -- preventDefault is required so that the card will not appear to
         -- "float" or "snap" back to its original position when dropped.
         , preventDefaultOn "dragover" (Json.Decode.succeed ( DragOver name index, True ))
         , stopPropagationOn "drop" (Json.Decode.succeed ( DragEnd, True ))
-        , style "padding" <|
-            "0 "
-                ++ (if active && over then
-                        "198.5px"
-
-                    else
-                        "50px"
-                   )
+        , attribute "data-index" (String.fromInt index)
         ]
-        []
+        [ Html.text (String.fromInt index) ]
